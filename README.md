@@ -2,7 +2,7 @@
 
 The Vyx Android SDK allows third-party Android apps to participate in the Vyx network by sharing bandwidth in exchange for rewards. The SDK runs as a background service and handles all networking operations transparently.
 
-> **Note:** This is the SDK for third-party app integration. For the official standalone Vyx Android app, see [OFFICIAL_APP_GUIDE.md](../../claudedocs/OFFICIAL_APP_GUIDE.md).
+> **Note:** This is the SDK for third-party app integration. For the official standalone Vyx Android app, please visit our website.
 
 ## Features
 
