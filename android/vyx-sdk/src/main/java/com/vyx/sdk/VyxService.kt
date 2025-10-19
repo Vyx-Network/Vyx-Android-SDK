@@ -178,18 +178,20 @@ class VyxService : Service() {
                 override fun onAvailable(network: Network) {
                     super.onAvailable(network)
 
-                    // Just track network changes, let Go client handle reconnection
                     val previousNetwork = activeNetwork
                     activeNetwork = network
 
                     if (previousNetwork != null && previousNetwork != network) {
-                        Log.i("Vyx", "Network changed: $previousNetwork -> $network")
+                        Log.i("Vyx", "Network switched: $previousNetwork -> $network - triggering reconnection")
+                        // Network changed (e.g., WiFi -> Mobile) - reconnect immediately
+                        reconnectQuicClient()
                     } else if (previousNetwork == null) {
-                        Log.i("Vyx", "Network restored: $network")
+                        Log.i("Vyx", "Network restored: $network - triggering reconnection")
+                        // Network came back after being lost - reconnect immediately
+                        reconnectQuicClient()
                     } else {
                         Log.d("Vyx", "Network available: $network")
                     }
-                    // Go client will automatically detect and reconnect
                 }
 
                 override fun onLost(network: Network) {
@@ -200,7 +202,8 @@ class VyxService : Service() {
                     if (activeNetwork == network) {
                         activeNetwork = null
                     }
-                    // Go client will handle reconnection when network returns
+                    // Connection will be detected as lost by Go client
+                    // Will reconnect when network returns via onAvailable()
                 }
             }
 
@@ -225,23 +228,24 @@ class VyxService : Service() {
     }
 
     private fun reconnectQuicClient() {
-        try {
-            Log.i("Vyx", "Reconnecting QUIC client...")
+        serviceScope.launch {
+            try {
+                Log.i("Vyx", "Network change detected - reconnecting immediately...")
 
-            // Disconnect and completely destroy old client
-            quicClient?.disconnect()
-            quicClient = null
+                // Disconnect old client
+                quicClient?.disconnect()
+                quicClient = null
 
-            // Wait for old Go goroutines to fully stop
-            Thread.sleep(1000)
+                // Small delay to ensure cleanup
+                delay(500)
 
-            // Create completely new QuicClient instance
-            // This ensures old Go goroutines are orphaned and garbage collected
-            startQuicConnection()
+                // Start new connection
+                startQuicConnection()
 
-            Log.i("Vyx", "Reconnection initiated with new client instance")
-        } catch (e: Exception) {
-            Log.e("Vyx", "Failed to reconnect QUIC client", e)
+                Log.i("Vyx", "Reconnection initiated")
+            } catch (e: Exception) {
+                Log.e("Vyx", "Failed to reconnect QUIC client", e)
+            }
         }
     }
 }

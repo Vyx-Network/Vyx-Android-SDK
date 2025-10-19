@@ -37,6 +37,12 @@ class QuicClient(
 
     /**
      * Start connection loop with automatic server discovery and reconnection
+     *
+     * Features:
+     * - Discovers optimal server based on latency and load
+     * - Go client handles automatic reconnection with exponential backoff
+     * - After 3 failures, rotates to fallback servers (us.vyx.network, eu.vyx.network, proxy.vyx.network)
+     * - Network changes trigger immediate reconnection via VyxService
      */
     fun connect() {
         // Recreate coroutine scope if it was cancelled
@@ -58,6 +64,7 @@ class QuicClient(
                 Log.i("Vyx", "Selected server: $currentServerUrl")
 
                 // Start QUIC connection to discovered server
+                // Go client will automatically add fallback servers for rotation
                 startConnection()
             } catch (e: Exception) {
                 Log.e("Vyx", "Server discovery failed, using fallback", e)
@@ -136,9 +143,10 @@ class QuicClient(
         clientConnections.values.forEach { it.close() }
         clientConnections.clear()
 
-        // The Go client will automatically retry connection
-        // VyxService will also detect network changes and trigger reconnection
-        Log.i("Vyx", "Go client will automatically attempt reconnection...")
+        // The Go client will automatically retry with exponential backoff (1s -> 2s -> 4s -> max 2min)
+        // After 3 failures, it will rotate to fallback servers
+        // VyxService will also detect network changes and trigger immediate reconnection
+        Log.i("Vyx", "Go client will automatically attempt reconnection with exponential backoff...")
     }
 
     override fun onMessage(messageType: String?, id: String?, addr: String?, data: String?) {

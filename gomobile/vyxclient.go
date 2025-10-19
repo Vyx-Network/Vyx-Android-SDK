@@ -51,20 +51,25 @@ type Connection struct {
 
 // Client is the main QUIC client for Android (exported for Go Mobile)
 type Client struct {
-	serverURL   string
-	apiToken    string
-	clientType  string
-	metadata    string
-	callback    Callback
-	quicConn    *quic.Conn
-	quicStream  *quic.Stream
-	quicMutex   sync.Mutex
-	clientConns map[string]*Connection
-	clientMutex sync.RWMutex
-	ctx         context.Context
-	cancel      context.CancelFunc
-	isConnected bool
-	shouldRun   bool
+	serverURL           string
+	apiToken            string
+	clientType          string
+	metadata            string
+	callback            Callback
+	quicConn            *quic.Conn
+	quicStream          *quic.Stream
+	quicMutex           sync.Mutex
+	clientConns         map[string]*Connection
+	clientMutex         sync.RWMutex
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	isConnected         bool
+	shouldRun           bool
+	consecutiveFailures int
+	retryMutex          sync.Mutex
+	serverList          []string
+	currentServerIdx    int
+	serverMutex         sync.Mutex
 }
 
 // NewClient creates a new QUIC client instance
@@ -76,6 +81,24 @@ type Client struct {
 func NewClient(serverURL string, apiToken string, clientType string, metadata string, callback Callback) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Build server list with primary and fallbacks
+	serverList := []string{
+		serverURL,
+		"us.vyx.network:8443",
+		"eu.vyx.network:8443",
+		"proxy.vyx.network:8443",
+	}
+
+	// Remove duplicates
+	uniqueServers := make([]string, 0, len(serverList))
+	seen := make(map[string]bool)
+	for _, s := range serverList {
+		if !seen[s] {
+			seen[s] = true
+			uniqueServers = append(uniqueServers, s)
+		}
+	}
+
 	return &Client{
 		serverURL:   serverURL,
 		apiToken:    apiToken,
@@ -86,6 +109,7 @@ func NewClient(serverURL string, apiToken string, clientType string, metadata st
 		ctx:         ctx,
 		cancel:      cancel,
 		shouldRun:   true,
+		serverList:  uniqueServers,
 	}
 }
 
@@ -124,16 +148,25 @@ func (c *Client) IsConnected() bool {
 	return c.isConnected
 }
 
-// connectionLoop handles automatic reconnection
+// connectionLoop handles automatic reconnection with exponential backoff
 func (c *Client) connectionLoop() {
-	connectionAttempts := 0
-	retryDelay := 4 * time.Second
-
 	for c.shouldRun {
-		c.log(fmt.Sprintf("Attempting to connect (attempt %d)", connectionAttempts+1))
+		c.retryMutex.Lock()
+		attempt := c.consecutiveFailures + 1
+		c.retryMutex.Unlock()
+
+		c.log(fmt.Sprintf("Attempting to connect (attempt %d)", attempt))
 
 		if c.connect() {
-			connectionAttempts = 0
+			// Successfully connected
+			c.retryMutex.Lock()
+			c.consecutiveFailures = 0
+			c.retryMutex.Unlock()
+
+			c.serverMutex.Lock()
+			c.currentServerIdx = 0
+			c.serverMutex.Unlock()
+
 			if c.callback != nil {
 				c.callback.OnConnected()
 			}
@@ -146,20 +179,70 @@ func (c *Client) connectionLoop() {
 				c.callback.OnDisconnected("Connection lost")
 			}
 			c.log("Connection lost, will reconnect...")
+		} else {
+			// Connection failed
+			c.retryMutex.Lock()
+			c.consecutiveFailures++
+			failures := c.consecutiveFailures
+			c.retryMutex.Unlock()
+
+			// Try next server after 3 consecutive failures
+			if failures >= 3 && len(c.serverList) > 1 {
+				c.rotateServer()
+			}
 		}
 
-		// Determine retry delay
-		if connectionAttempts >= 2 {
-			retryDelay = 5 * time.Minute
-		}
-
-		connectionAttempts++
-
+		// Calculate exponential backoff delay
 		if c.shouldRun {
-			c.log(fmt.Sprintf("Retrying in %v...", retryDelay))
-			time.Sleep(retryDelay)
+			delay := c.calculateRetryDelay()
+			c.log(fmt.Sprintf("Retrying in %v...", delay))
+			time.Sleep(delay)
 		}
 	}
+}
+
+// calculateRetryDelay computes exponential backoff delay
+// 1s -> 2s -> 4s -> 8s -> 16s -> 32s -> 64s -> 120s (max)
+func (c *Client) calculateRetryDelay() time.Duration {
+	c.retryMutex.Lock()
+	defer c.retryMutex.Unlock()
+
+	if c.consecutiveFailures == 0 {
+		return 1 * time.Second
+	}
+
+	// Exponential backoff: 2^(n-1) seconds
+	exponent := c.consecutiveFailures - 1
+	if exponent > 6 {
+		exponent = 6 // Cap at 2^6 = 64 seconds base
+	}
+
+	delay := time.Duration(1<<uint(exponent)) * time.Second
+	maxDelay := 2 * time.Minute
+
+	if delay > maxDelay {
+		delay = maxDelay
+	}
+
+	return delay
+}
+
+// rotateServer switches to the next server in the list
+func (c *Client) rotateServer() {
+	c.serverMutex.Lock()
+	defer c.serverMutex.Unlock()
+
+	oldIdx := c.currentServerIdx
+	c.currentServerIdx = (c.currentServerIdx + 1) % len(c.serverList)
+	c.serverURL = c.serverList[c.currentServerIdx]
+
+	c.log(fmt.Sprintf("Rotating server: %s -> %s",
+		c.serverList[oldIdx], c.serverURL))
+
+	// Reset failure counter when rotating
+	c.retryMutex.Lock()
+	c.consecutiveFailures = 0
+	c.retryMutex.Unlock()
 }
 
 // connect establishes QUIC connection and authenticates
