@@ -91,15 +91,33 @@ publishing {
             artifactId = "vyx-sdk"
             version = "1.1.0"
 
-            // Use Fat AAR for publication (includes merged vyxclient)
             afterEvaluate {
+                // Publish Fat AAR (includes merged vyxclient)
                 artifact(tasks.named("createFatAar").get().outputs.files.singleFile) {
                     builtBy(tasks.named("createFatAar"))
                     extension = "aar"
                 }
+
+                // Publish sources JAR for IDE support
+                artifact(tasks.named("sourcesJar"))
+
+                // Publish javadoc JAR for documentation
+                artifact(tasks.named("javadocJar"))
             }
         }
     }
+}
+
+// Generate sources JAR
+tasks.register<Jar>("sourcesJar") {
+    archiveClassifier.set("sources")
+    from(android.sourceSets["main"].java.srcDirs)
+}
+
+// Generate javadoc JAR
+tasks.register<Jar>("javadocJar") {
+    archiveClassifier.set("javadoc")
+    // Empty javadoc JAR (Kotlin doesn't require full javadoc)
 }
 
 // Task to create fat AAR by merging vyxclient.aar into vyx-sdk.aar
