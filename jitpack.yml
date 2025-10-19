@@ -1,0 +1,13 @@
+jdk:
+  - openjdk17
+
+before_install:
+  - echo "JitPack build for Vyx Android SDK v1.1.0"
+  - echo "Module: vyx-sdk (from android/vyx-sdk subdirectory)"
+  - ls -lh android/vyx-sdk/libs/vyxclient.aar
+
+install:
+  - ./gradlew :vyx-sdk:publishToMavenLocal --no-daemon
+
+env:
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs='-Xmx2g -XX:MaxMetaspaceSize=512m'"
