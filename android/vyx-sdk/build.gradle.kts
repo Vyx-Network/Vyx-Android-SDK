@@ -73,10 +73,9 @@ dependencies {
     // Coroutines for async operations
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
-    // Go Mobile QUIC client (published to local Maven)
-    // Build: cd sdk/gomobile && ./build.sh
-    // Publish: cd sdk/android && publish-vyxclient.bat
-    // Using api() instead of implementation() to expose to consuming apps
+    // Go Mobile QUIC client (from local Maven for Fat AAR build)
+    // Build: cd sdk/gomobile && gomobile bind ...
+    // For JitPack: Fat AAR merges this into vyx-sdk.aar
     api("com.vyx:vyxclient:1.0.0")
 
     // Testing
@@ -92,8 +91,12 @@ publishing {
             artifactId = "vyx-sdk"
             version = "1.1.0"
 
+            // Use Fat AAR for publication (includes merged vyxclient)
             afterEvaluate {
-                from(components["release"])
+                artifact(tasks.named("createFatAar").get().outputs.files.singleFile) {
+                    builtBy(tasks.named("createFatAar"))
+                    extension = "aar"
+                }
             }
         }
     }
@@ -103,11 +106,14 @@ publishing {
 tasks.register("createFatAar") {
     dependsOn("assembleRelease")
 
+    val fatAarFile = layout.buildDirectory.file("outputs/aar/vyx-sdk-fat.aar")
+    outputs.file(fatAarFile)
+
     doLast {
         val buildDir = layout.buildDirectory.get().asFile
-        val vyxclientAar = file("${rootProject.projectDir}/local-maven/com/vyx/vyxclient/1.0.0/vyxclient-1.0.0.aar")
+        val vyxclientAar = file("${rootProject.projectDir}/android/local-maven/com/vyx/vyxclient/1.0.0/vyxclient-1.0.0.aar")
         val sdkAar = file("${buildDir}/outputs/aar/vyx-sdk-release.aar")
-        val fatAar = file("${buildDir}/outputs/aar/vyx-sdk-fat.aar")
+        val fatAar = fatAarFile.get().asFile
         val tempDir = file("${buildDir}/tmp/fat-aar")
         // Clean temp directory
         delete(tempDir)

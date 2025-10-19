@@ -1,7 +1,7 @@
 jdk:
   - openjdk17
 before_install:
-  - echo "Building Vyx Android SDK v1.1.0"
-  - ls -lh android/vyx-sdk/libs/vyxclient.aar
+  - echo "Building Vyx Android SDK v1.1.0 (Fat AAR with embedded vyxclient)"
+  - echo "vyxclient.aar size:" && ls -lh android/vyx-sdk/libs/vyxclient.aar
 install:
   - ./gradlew :vyx-sdk:publishToMavenLocal --no-daemon --stacktrace

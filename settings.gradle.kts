@@ -14,7 +14,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // Local Maven repository for vyxclient.aar
+        // Local Maven for vyxclient (used during Fat AAR build)
         maven {
             url = uri("${rootDir}/android/local-maven")
         }
