@@ -15,7 +15,7 @@ android {
         consumerProguardFiles("consumer-rules.pro")
 
         // SDK version
-        buildConfigField("String", "SDK_VERSION", "\"1.0.0\"")
+        buildConfigField("String", "SDK_VERSION", "\"1.1.0\"")
     }
 
     testOptions {
@@ -90,7 +90,7 @@ publishing {
         register<MavenPublication>("release") {
             groupId = "com.vyx"
             artifactId = "vyx-sdk"
-            version = "1.0.0"
+            version = "1.1.0"
 
             afterEvaluate {
                 from(components["release"])
