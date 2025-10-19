@@ -68,12 +68,15 @@ object VyxNode {
      * @throws IllegalStateException if SDK is not initialized
      * @return true if service was started, false if already running
      */
+    @Synchronized
     fun start(): Boolean {
         checkInitialized()
 
-        // Prevent duplicate starts
+        // Prevent duplicate starts - check BEFORE and AFTER service start
         if (isRunning()) {
-            Log.w("Vyx", "Vyx node service is already running")
+            if (config?.enableDebugLogging == true) {
+                Log.w(TAG, "Vyx node service is already running, skipping duplicate start")
+            }
             return false
         }
 
@@ -82,9 +85,20 @@ object VyxNode {
             putExtra(VyxService.EXTRA_CONFIG, config)
         }
 
+        // Start the service
         ContextCompat.startForegroundService(ctx, serviceIntent)
+
+        // Double-check: Brief delay to ensure service state is updated
+        Thread.sleep(100)
+
+        // Verify service actually started
+        if (!isRunning()) {
+            Log.e(TAG, "Vyx node service failed to start")
+            return false
+        }
+
         if (config?.enableDebugLogging == true) {
-            Log.i(TAG, "Vyx node service started")
+            Log.i(TAG, "Vyx node service started successfully")
         }
         return true
     }
