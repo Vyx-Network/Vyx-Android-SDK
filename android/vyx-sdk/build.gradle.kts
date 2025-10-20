@@ -15,7 +15,7 @@ android {
         consumerProguardFiles("consumer-rules.pro")
 
         // SDK version
-        buildConfigField("String", "SDK_VERSION", "\"1.1.0\"")
+        buildConfigField("String", "SDK_VERSION", "\"1.2.0\"")
     }
 
     testOptions {
