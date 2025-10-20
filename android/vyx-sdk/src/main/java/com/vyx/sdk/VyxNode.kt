@@ -1,6 +1,7 @@
 package com.vyx.sdk
 
 import android.annotation.SuppressLint
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.util.Log
@@ -108,33 +109,34 @@ object VyxNode {
      * This will stop earning rewards
      *
      * @throws IllegalStateException if SDK is not initialized
-     * @return true if service was stopped, false if not running
+     * @return true if service was stopped
      */
     fun stop(): Boolean {
         checkInitialized()
 
-        // Check if service is running
-        if (!isRunning()) {
-            Log.w("Vyx", "Vyx node service is not running")
-            return false
-        }
-
         val ctx = requireContext()
         val serviceIntent = Intent(ctx, VyxService::class.java)
-        ctx.stopService(serviceIntent)
+
+        // Simply stop the service - no need for explicit stop flag
+        val stopped = ctx.stopService(serviceIntent)
+
         if (config?.enableDebugLogging == true) {
-            Log.i(TAG, "Vyx node service stopped")
+            Log.i(TAG, "Vyx node service stopped (result: $stopped)")
         }
-        return true
+
+        return stopped
     }
 
     /**
      * Check if the Vyx node service is running
+     * Uses static flag from VyxService for fast, non-blocking check
      *
      * @return true if service is active
      */
     fun isRunning(): Boolean {
         checkInitialized()
+        // Use static flag for fast check (called every second from real-time updates)
+        // ActivityManager.getRunningServices() is too slow and deprecated
         return VyxService.isServiceRunning()
     }
 

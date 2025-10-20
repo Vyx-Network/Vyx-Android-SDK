@@ -129,7 +129,7 @@ tasks.register("createFatAar") {
 
     doLast {
         val buildDir = layout.buildDirectory.get().asFile
-        val vyxclientAar = file("${rootProject.projectDir}/android/local-maven/com/vyx/vyxclient/1.0.0/vyxclient-1.0.0.aar")
+        val vyxclientAar = file("${rootProject.projectDir}/local-maven/com/vyx/vyxclient/1.0.0/vyxclient-1.0.0.aar")
         val sdkAar = file("${buildDir}/outputs/aar/vyx-sdk-release.aar")
         val fatAar = fatAarFile.get().asFile
         val tempDir = file("${buildDir}/tmp/fat-aar")

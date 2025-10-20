@@ -29,11 +29,13 @@ class VyxService : Service() {
     private var config: VyxConfig? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var activeNetwork: Network? = null
+    private var reconnectionJob: Job? = null // Track active reconnection job to prevent duplicates
 
     companion object {
         private const val NOTIFICATION_ID = 1001
         private const val CHANNEL_ID = "vyx_node_service"
         const val EXTRA_CONFIG = "config"
+        const val ACTION_STOP_SERVICE = "com.vyx.sdk.ACTION_STOP"
 
         @Volatile
         private var isRunning = false
@@ -44,6 +46,7 @@ class VyxService : Service() {
     override fun onCreate() {
         super.onCreate()
         Log.d("Vyx", "VyxService onCreate")
+        Log.i("Vyx", "★★★ VyxService v1.1.2-CONNECTING-FLAG - isConnecting protection active ★★★")
         isRunning = true
 
         // Acquire wake lock to keep CPU running for network operations
@@ -68,8 +71,13 @@ class VyxService : Service() {
             return START_STICKY
         }
 
-        // Extract configuration from intent
-        config = intent?.getSerializableExtra(EXTRA_CONFIG) as? VyxConfig
+        // Extract configuration from intent (API 33+ compatible)
+        config = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent?.getSerializableExtra(EXTRA_CONFIG, VyxConfig::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent?.getSerializableExtra(EXTRA_CONFIG) as? VyxConfig
+        }
 
         if (config == null) {
             Log.e("Vyx", "No configuration provided, stopping service")
@@ -116,6 +124,12 @@ class VyxService : Service() {
 
     private fun startQuicConnection() {
         val cfg = config ?: return
+
+        // PROTECTION: Don't start if we already have a client
+        if (quicClient != null) {
+            Log.w("Vyx", "QuicClient already exists, skipping duplicate startQuicConnection()")
+            return
+        }
 
         Log.i("Vyx", "Starting QUIC connection with automatic server discovery")
 
@@ -181,6 +195,19 @@ class VyxService : Service() {
                     val previousNetwork = activeNetwork
                     activeNetwork = network
 
+                    // Only trigger reconnect if we ALREADY have a client
+                    // Don't reconnect during initial startup (when quicClient is still null)
+                    if (quicClient == null) {
+                        Log.d("Vyx", "Network available during startup: $network - skipping reconnect (initial connection in progress)")
+                        return
+                    }
+
+                    // CRITICAL: Don't trigger reconnect if a connection attempt is already in progress
+                    if (quicClient?.isConnecting() == true) {
+                        Log.d("Vyx", "Network available but connection already in progress - skipping duplicate reconnect")
+                        return
+                    }
+
                     if (previousNetwork != null && previousNetwork != network) {
                         Log.i("Vyx", "Network switched: $previousNetwork -> $network - triggering reconnection")
                         // Network changed (e.g., WiFi -> Mobile) - reconnect immediately
@@ -228,7 +255,10 @@ class VyxService : Service() {
     }
 
     private fun reconnectQuicClient() {
-        serviceScope.launch {
+        // CRITICAL: Cancel any existing reconnection to prevent duplicate connections
+        reconnectionJob?.cancel()
+
+        reconnectionJob = serviceScope.launch {
             try {
                 Log.i("Vyx", "Network change detected - reconnecting immediately...")
 
@@ -243,8 +273,15 @@ class VyxService : Service() {
                 startQuicConnection()
 
                 Log.i("Vyx", "Reconnection initiated")
+            } catch (e: CancellationException) {
+                Log.d("Vyx", "Reconnection cancelled (newer reconnection started)")
             } catch (e: Exception) {
                 Log.e("Vyx", "Failed to reconnect QUIC client", e)
+            } finally {
+                // Clear job reference when done
+                if (reconnectionJob?.isActive == false) {
+                    reconnectionJob = null
+                }
             }
         }
     }

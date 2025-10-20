@@ -26,6 +26,14 @@
 -keepclassmembers class vyxclient.** { *; }
 -keepnames class vyxclient.** { *; }
 
+# Keep Go Mobile Seq class - CRITICAL: JNI bridge used by native Go code
+# This fixes "failed to find method Seq.getRef" crash in release builds
+-keep class go.Seq { *; }
+-keepclassmembers class go.Seq { *; }
+-keep class go.** { *; }
+-keepclassmembers class go.** { *; }
+-keepnames class go.** { *; }
+
 # Keep native methods for Go Mobile
 -keepclasseswithmembernames class vyxclient.** {
     native <methods>;
@@ -38,3 +46,4 @@
 # Don't warn about missing dependencies
 -dontwarn com.vyx.sdk.**
 -dontwarn vyxclient.**
+-dontwarn go.**

@@ -28,6 +28,10 @@ class QuicClient(
     private val clientConnections = ConcurrentHashMap<String, ProxyConnection>()
 
     private var goClient: Client? = null
+    private var connectionJob: Job? = null // Track active connection job to prevent duplicates
+
+    @Volatile
+    private var isConnecting = false // Track if connection attempt is in progress
 
     @Volatile
     private var isConnected = false
@@ -45,14 +49,26 @@ class QuicClient(
      * - Network changes trigger immediate reconnection via VyxService
      */
     fun connect() {
+        // CRITICAL: Prevent duplicate connection attempts
+        if (isConnecting) {
+            Log.w("Vyx", "Connection already in progress, ignoring duplicate connect() call")
+            return
+        }
+
+        // CRITICAL: Cancel any existing connection attempt to prevent duplicates
+        connectionJob?.cancel()
+
         // Recreate coroutine scope if it was cancelled
         if (!ioScope.isActive) {
             Log.d("Vyx", "Recreating coroutine scope")
             ioScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         }
 
+        // Mark as connecting BEFORE starting async work
+        isConnecting = true
+
         // Discover optimal server in background
-        ioScope.launch {
+        connectionJob = ioScope.launch {
             try {
                 Log.i("Vyx", "Discovering optimal server...")
                 val optimalServer = ServerDiscovery.getOptimalServer(
@@ -66,10 +82,20 @@ class QuicClient(
                 // Start QUIC connection to discovered server
                 // Go client will automatically add fallback servers for rotation
                 startConnection()
+            } catch (e: CancellationException) {
+                Log.d("Vyx", "Connection attempt cancelled (newer attempt started)")
             } catch (e: Exception) {
                 Log.e("Vyx", "Server discovery failed, using fallback", e)
                 currentServerUrl = VyxConfig.FALLBACK_SERVER
                 startConnection()
+            } finally {
+                // Clear connecting flag when done
+                isConnecting = false
+
+                // Clear job reference when done
+                if (connectionJob?.isActive == false) {
+                    connectionJob = null
+                }
             }
         }
     }
@@ -109,8 +135,22 @@ class QuicClient(
     fun disconnect() {
         Log.i("Vyx", "Disconnecting QUIC client")
 
-        // Stop Go client
-        goClient?.stop()
+        // Clear connecting flag to allow future connections
+        isConnecting = false
+
+        // Cancel any pending connection jobs FIRST
+        connectionJob?.cancel()
+        connectionJob = null
+
+        // Stop Go client (this stops the connection loop)
+        goClient?.let {
+            try {
+                it.stop()
+                Log.d("Vyx", "Go client stopped")
+            } catch (e: Exception) {
+                Log.e("Vyx", "Error stopping Go client", e)
+            }
+        }
         goClient = null
 
         // Close all proxy connections
@@ -127,6 +167,11 @@ class QuicClient(
      * Check if currently connected to server
      */
     fun isConnected(): Boolean = isConnected && goClient != null
+
+    /**
+     * Check if connection attempt is currently in progress
+     */
+    fun isConnecting(): Boolean = isConnecting
 
     // ========== MessageCallback Implementation ==========
 
